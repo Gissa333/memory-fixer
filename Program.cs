@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -89,36 +90,51 @@ namespace MemoryFixer
 
         ComboBox cmbDrives;
         Label lblInfo;
+        Label lblReadOnly;
         TabControl tabs;
         CancellationTokenSource cts;
 
+        // Tab 1 - Filesystem
+        ListView lvFiles;
+        RichTextBox logFs;
+        RoundButton btnReadMft, btnReadFat, btnReadFull, btnRecoverFromList;
+        Label lblFsStatus;
+
+        // Tab 2 - Recovery (Raw scan)
         TextBox txtOut;
         RichTextBox logRecovery;
         ProgressBar pbRecovery;
         Label lblRecPercent;
         RoundButton btnStartRec, btnStopRec, btnBrowse;
 
+        // Tab 3 - Repair
         RichTextBox logRepair;
-        RoundButton btnChkScan, btnChkFix, btnFormatQuick, btnFormatFull, btnFixMBR, btnBackupBoot, btnRestoreBoot;
+        RoundButton btnChkScan, btnChkFix, btnFormatQuick, btnFormatFull, btnFixBoot, btnBackupBoot, btnRestoreBoot;
 
+        // Tab 4 - Bad sectors
         RichTextBox logBad;
         ProgressBar pbBad;
         RoundButton btnBadStart, btnBadStop;
 
+        // Tab 5 - Speed
         RichTextBox logSpeed;
         ProgressBar pbSpeed;
         RoundButton btnSpeedStart;
 
+        // Tab 6 - Hex
+        HexViewer hexViewer;
+        RoundButton btnHexFromFile, btnHexFromDrive;
+
         public MainForm()
         {
             Text = "Memory Fixer - صيانة ذواكر التخزين | " + Dev;
-            Width = 1150; Height = 800;
+            Width = 1180; Height = 820;
             BackColor = BgDark; ForeColor = TextMain;
             Font = new Font("Segoe UI", 9.5F);
             StartPosition = FormStartPosition.CenterScreen;
             RightToLeft = RightToLeft.Yes;
             RightToLeftLayout = true;
-            MinimumSize = new Size(1000, 700);
+            MinimumSize = new Size(1050, 720);
 
             BuildUI();
             LoadDrives();
@@ -143,14 +159,14 @@ namespace MemoryFixer
             };
             var sub = new Label
             {
-                Text = "صيانة ذواكر التخزين (SD / فلاش USB) + استعادة الملفات المحذوفة",
+                Text = "صيانة ذواكر التخزين (SD / فلاش USB) + استعادة الملفات + عارض Hex",
                 Font = new Font("Segoe UI", 10F),
                 ForeColor = Color.FromArgb(200, 240, 255), AutoSize = true,
                 Location = new Point(35, 60), BackColor = Color.Transparent
             };
             var dev = new Label
             {
-                Text = "Developed by  " + Dev + "  •  v1.0",
+                Text = "Developed by  " + Dev + "  •  v2.0",
                 Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(255, 220, 130), AutoSize = true,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right, BackColor = Color.Transparent
@@ -165,7 +181,7 @@ namespace MemoryFixer
             var dp = new Panel
             {
                 Location = new Point(20, 118),
-                Size = new Size(1100, 65),
+                Size = new Size(1130, 65),
                 BackColor = CardBg,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
@@ -180,7 +196,7 @@ namespace MemoryFixer
 
             cmbDrives = new ComboBox
             {
-                Location = new Point(120, 18), Width = 480,
+                Location = new Point(120, 18), Width = 450,
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 10F),
                 BackColor = Color.FromArgb(45, 45, 65),
@@ -191,23 +207,32 @@ namespace MemoryFixer
             lblInfo = new Label
             {
                 Text = "", Font = new Font("Segoe UI", 9F),
-                ForeColor = Info, Location = new Point(620, 22),
+                ForeColor = Info, Location = new Point(585, 22),
+                AutoSize = true, BackColor = Color.Transparent
+            };
+
+            lblReadOnly = new Label
+            {
+                Text = "وضع القراءة فقط",
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Success, Location = new Point(1000, 22),
                 AutoSize = true, BackColor = Color.Transparent
             };
 
             dp.Controls.Add(lblD);
             dp.Controls.Add(cmbDrives);
             dp.Controls.Add(lblInfo);
+            dp.Controls.Add(lblReadOnly);
 
             tabs = new TabControl
             {
                 Location = new Point(20, 195),
-                Size = new Size(1100, 545),
+                Size = new Size(1130, 565),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                 Padding = new Point(15, 8),
                 DrawMode = TabDrawMode.OwnerDrawFixed,
-                ItemSize = new Size(210, 38),
+                ItemSize = new Size(175, 36),
                 SizeMode = TabSizeMode.Fixed
             };
             tabs.DrawItem += (s, e) =>
@@ -218,36 +243,412 @@ namespace MemoryFixer
                 using (var bg = new SolidBrush(sel ? Accent : CardBg))
                     g.FillRectangle(bg, rect);
                 TextRenderer.DrawText(g, tabs.TabPages[e.Index].Text,
-                    new Font("Segoe UI", 9.5F, FontStyle.Bold), rect,
+                    new Font("Segoe UI", 9F, FontStyle.Bold), rect,
                     sel ? Color.White : TextMain,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             };
 
-            var t1 = new TabPage("استعادة الملفات") { BackColor = CardBg, ForeColor = TextMain };
-            var t2 = new TabPage("إصلاح الذاكرة") { BackColor = CardBg, ForeColor = TextMain };
-            var t3 = new TabPage("فحص القطاعات") { BackColor = CardBg, ForeColor = TextMain };
-            var t4 = new TabPage("اختبار السرعة") { BackColor = CardBg, ForeColor = TextMain };
+            var t1 = new TabPage("نظام الملفات") { BackColor = CardBg, ForeColor = TextMain };
+            var t2 = new TabPage("استعادة خام") { BackColor = CardBg, ForeColor = TextMain };
+            var t3 = new TabPage("إصلاح الذاكرة") { BackColor = CardBg, ForeColor = TextMain };
+            var t4 = new TabPage("فحص القطاعات") { BackColor = CardBg, ForeColor = TextMain };
+            var t5 = new TabPage("اختبار السرعة") { BackColor = CardBg, ForeColor = TextMain };
+            var t6 = new TabPage("عارض Hex") { BackColor = CardBg, ForeColor = TextMain };
 
             BuildTab1(t1);
             BuildTab2(t2);
             BuildTab3(t3);
             BuildTab4(t4);
+            BuildTab5(t5);
+            BuildTab6(t6);
 
             tabs.TabPages.Add(t1);
             tabs.TabPages.Add(t2);
             tabs.TabPages.Add(t3);
             tabs.TabPages.Add(t4);
+            tabs.TabPages.Add(t5);
+            tabs.TabPages.Add(t6);
 
             Controls.Add(header);
             Controls.Add(dp);
             Controls.Add(tabs);
         }
 
+        // ============= Tab 1: Filesystem (MFT + FAT + preview) =============
         void BuildTab1(TabPage tab)
+        {
+            lblFsStatus = new Label
+            {
+                Text = "اختر نظام الملفات للقراءة:",
+                Location = new Point(20, 15), AutoSize = true,
+                ForeColor = TextMain, Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                BackColor = Color.Transparent
+            };
+
+            btnReadMft = MkBtn("قراءة MFT (NTFS)", Info, 20, 45);
+            btnReadMft.Click += BtnReadMft_Click;
+
+            btnReadFat = MkBtn("قراءة FAT/exFAT", Teal, 230, 45);
+            btnReadFat.Click += BtnReadFat_Click;
+
+            btnReadFull = MkBtn("قراءة كاملة (معاينة Hex)", Pink, 440, 45);
+            btnReadFull.Click += BtnReadFull_Click;
+
+            btnRecoverFromList = MkBtn("استعادة المحدد", Success, 650, 45);
+            btnRecoverFromList.Click += BtnRecoverFromList_Click;
+
+            lvFiles = new ListView
+            {
+                Location = new Point(20, 110),
+                Size = new Size(1080, 250),
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true,
+                BackColor = Color.FromArgb(12, 12, 20),
+                ForeColor = TextMain,
+                Font = new Font("Consolas", 9F),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            lvFiles.Columns.Add("الاسم", 400);
+            lvFiles.Columns.Add("الحجم", 120);
+            lvFiles.Columns.Add("النوع", 100);
+            lvFiles.Columns.Add("الحالة", 120);
+            lvFiles.Columns.Add("الموقع", 200);
+            lvFiles.SelectedIndexChanged += (s, e) => ShowHexForSelected();
+
+            logFs = new RichTextBox
+            {
+                Location = new Point(20, 370),
+                Size = new Size(1080, 130),
+                BackColor = Color.FromArgb(12, 12, 20),
+                ForeColor = TextMain,
+                Font = new Font("Consolas", 9F),
+                ReadOnly = true,
+                BorderStyle = BorderStyle.FixedSingle,
+                ScrollBars = RichTextBoxScrollBars.Vertical,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                RightToLeft = RightToLeft.No
+            };
+
+            tab.Controls.Add(lblFsStatus);
+            tab.Controls.Add(btnReadMft);
+            tab.Controls.Add(btnReadFat);
+            tab.Controls.Add(btnReadFull);
+            tab.Controls.Add(btnRecoverFromList);
+            tab.Controls.Add(lvFiles);
+            tab.Controls.Add(logFs);
+        }
+
+        void BtnReadMft_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (cmbDrives.SelectedItem == null) { MessageBox.Show("اختر الذاكرة."); return; }
+                char L = GetLetter();
+                lvFiles.Items.Clear();
+                logFs.Clear();
+                Log(logFs, "قراءة MFT من NTFS...", Info);
+
+                Task.Run(() =>
+                {
+                    var entries = MftReader.ReadDeletedEntries($@"\\.\{L}:", (pct, msg) =>
+                    {
+                        Log(logFs, msg, TextMain);
+                    });
+
+                    Invoke((Action)(() =>
+                    {
+                        foreach (var entry in entries)
+                        {
+                            var lvi = new ListViewItem(new string[]
+                            {
+                                entry.FileName,
+                                FormatSize(entry.RealSize),
+                                "NTFS",
+                                "محذوف",
+                                $"سجل #{entry.RecordNumber}"
+                            });
+                            lvi.Tag = entry;
+                            lvFiles.Items.Add(lvi);
+                        }
+                        SetLabel(lblFsStatus, $"تم استخراج {entries.Count} ملف محذوف من MFT.", Success);
+                        Log(logFs, $"اكتمل: {entries.Count} ملف", Success);
+                    }));
+                });
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        }
+
+        void BtnReadFat_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (cmbDrives.SelectedItem == null) { MessageBox.Show("اختر الذاكرة."); return; }
+                char L = GetLetter();
+                lvFiles.Items.Clear();
+                logFs.Clear();
+                Log(logFs, "قراءة دليل FAT/exFAT...", Info);
+
+                Task.Run(() =>
+                {
+                    var entries = FatReader.ReadDirectory($@"\\.\{L}:");
+                    Invoke((Action)(() =>
+                    {
+                        foreach (var entry in entries)
+                        {
+                            var lvi = new ListViewItem(new string[]
+                            {
+                                entry.FileName,
+                                FormatSize(entry.Size),
+                                entry.IsDirectory ? "مجلد" : "ملف",
+                                "ظاهر",
+                                $"Cluster #{entry.FirstCluster}"
+                            });
+                            lvi.Tag = entry;
+                            lvFiles.Items.Add(lvi);
+                        }
+                        SetLabel(lblFsStatus, $"تم استخراج {entries.Count} ملف من دليل FAT.", Success);
+                        Log(logFs, $"اكتمل: {entries.Count} ملف", Success);
+                    }));
+                });
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        }
+
+        void BtnReadFull_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (cmbDrives.SelectedItem == null) { MessageBox.Show("اختر الذاكرة."); return; }
+                char L = GetLetter();
+                lvFiles.Items.Clear();
+                logFs.Clear();
+                Log(logFs, "قراءة أول 512 بايت من كل ملف عبر التواقيع (معاينة محدودة)...", Warning);
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        using (var stream = new FileStream($@"\\.\{L}:", FileMode.Open, FileAccess.Read, FileShare.ReadWrite, BufSize))
+                        {
+                            byte[] buf = new byte[BufSize];
+                            long total = stream.Length;
+                            long pos = 0;
+                            long lastEnd = -1;
+                            int found = 0;
+                            int maxFound = 500;
+
+                            while (pos < total && found < maxFound)
+                            {
+                                int read = stream.Read(buf, 0, BufSize);
+                                if (read <= 0) break;
+
+                                for (int i = 0; i < read - 16 && found < maxFound; i++)
+                                {
+                                    long off = pos + i;
+                                    if (off <= lastEnd) continue;
+                                    var sig = Detect(buf, i, read);
+                                    if (sig == null) continue;
+
+                                    found++;
+                                    long fakeSize = EstimateFileSize(stream, off, sig.Value.ext);
+                                    lastEnd = off + fakeSize;
+
+                                    var cap = new CaptureInfo
+                                    {
+                                        Offset = off,
+                                        Ext = sig.Value.ext,
+                                        Name = sig.Value.name,
+                                        Size = fakeSize
+                                    };
+
+                                    Invoke((Action)(() =>
+                                    {
+                                        var lvi = new ListViewItem(new string[]
+                                        {
+                                            $"ملف_{found:D4}.{sig.Value.ext}",
+                                            FormatSize(fakeSize),
+                                            sig.Value.name,
+                                            "من خلال التوقيع",
+                                            $"Offset {off:N0}"
+                                        });
+                                        lvi.Tag = cap;
+                                        lvFiles.Items.Add(lvi);
+                                    }));
+                                }
+                                pos += read;
+                            }
+
+                            Invoke((Action)(() =>
+                            {
+                                SetLabel(lblFsStatus, $"تم العثور على {found} ملف عبر التواقيع.", Success);
+                                Log(logFs, $"اكتمل: {found} ملف", Success);
+                            }));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Invoke((Action)(() => Log(logFs, "خطأ: " + ex.Message, Error)));
+                    }
+                });
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        }
+
+        long EstimateFileSize(FileStream stream, long offset, string ext)
+        {
+            try
+            {
+                long saved = stream.Position;
+                stream.Seek(offset, SeekOrigin.Begin);
+                byte[] buf = new byte[BufSize];
+                int read = stream.Read(buf, 0, BufSize);
+                int zero = 0;
+                for (int i = 0; i < read; i++)
+                {
+                    if (buf[i] == 0x00) zero++;
+                    else zero = 0;
+                    if (zero >= 1024 * 64) { stream.Position = saved; return i; }
+                }
+                stream.Position = saved;
+                return 256 * 1024;
+            }
+            catch { return 0; }
+        }
+
+        void ShowHexForSelected()
+        {
+            try
+            {
+                if (lvFiles.SelectedItems.Count == 0) { hexViewer?.Clear(); return; }
+                var item = lvFiles.SelectedItems[0];
+                if (cmbDrives.SelectedItem == null) return;
+                char L = GetLetter();
+
+                long offset = -1;
+                if (item.Tag is MftReader.MftEntry mft && mft.DataRuns.Count > 0)
+                    offset = mft.DataRuns[0].Item1;
+                else if (item.Tag is CaptureInfo cap)
+                    offset = cap.Offset;
+
+                if (offset < 0) { hexViewer?.Clear(); return; }
+
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        using (var s = new FileStream($@"\\.\{L}:", FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        {
+                            s.Seek(offset, SeekOrigin.Begin);
+                            byte[] preview = new byte[512];
+                            int r = s.Read(preview, 0, 512);
+                            if (r < 512) Array.Resize(ref preview, r);
+
+                            Invoke((Action)(() =>
+                            {
+                                if (hexViewer != null)
+                                {
+                                    hexViewer.SetData(preview, $"معاينة {item.Text} - Offset 0x{offset:X}");
+                                    tabs.SelectedIndex = 5;
+                                }
+                            }));
+                        }
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+
+        void BtnRecoverFromList_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (lvFiles.SelectedItems.Count == 0) { MessageBox.Show("حدد ملفًا من القائمة."); return; }
+                if (cmbDrives.SelectedItem == null) return;
+
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    fbd.Description = "اختر مجلد الحفظ";
+                    if (fbd.ShowDialog() != DialogResult.OK) return;
+
+                    char L = GetLetter();
+                    string drivePath = $@"\\.\{L}:";
+                    string outDir = fbd.SelectedPath;
+
+                    foreach (ListViewItem item in lvFiles.SelectedItems)
+                    {
+                        string outName = SanitizeFileName(item.Text);
+                        string outPath = Path.Combine(outDir, outName);
+
+                        long offset = -1;
+                        long size = 0;
+
+                        if (item.Tag is MftReader.MftEntry mft)
+                        {
+                            if (mft.DataRuns.Count > 0) { offset = mft.DataRuns[0].Item1; size = mft.RealSize; }
+                        }
+                        else if (item.Tag is CaptureInfo cap)
+                        {
+                            offset = cap.Offset;
+                            size = cap.Size;
+                        }
+                        else if (item.Tag is FatReader.FatEntry fat)
+                        {
+                            Log(logFs, $"FAT: {fat.FileName} — استخدم التبويب الثاني للاستعادة الخام.", Warning);
+                            continue;
+                        }
+
+                        if (offset >= 0)
+                        {
+                            Task.Run(() =>
+                            {
+                                try
+                                {
+                                    using (var src = new FileStream(drivePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                                    using (var dst = new FileStream(outPath, FileMode.Create, FileAccess.Write))
+                                    {
+                                        src.Seek(offset, SeekOrigin.Begin);
+                                        byte[] buf = new byte[BufSize];
+                                        long written = 0;
+                                        while (written < size)
+                                        {
+                                            int toRead = (int)Math.Min(BufSize, size - written);
+                                            int r = src.Read(buf, 0, toRead);
+                                            if (r <= 0) break;
+                                            dst.Write(buf, 0, r);
+                                            written += r;
+                                        }
+                                    }
+                                    Invoke((Action)(() => Log(logFs, $"تم حفظ: {outName}", Success)));
+                                }
+                                catch (Exception ex)
+                                {
+                                    Invoke((Action)(() => Log(logFs, "خطأ: " + ex.Message, Error)));
+                                }
+                            });
+                        }
+                    }
+                    MessageBox.Show("تم بدء الاستعادة. راقب السجل.", "معلومة", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        }
+
+        class CaptureInfo
+        {
+            public long Offset;
+            public long Size;
+            public string Ext;
+            public string Name;
+        }
+
+        // ============= Tab 2: Raw Recovery =============
+        void BuildTab2(TabPage tab)
         {
             var lblOut = new Label
             {
-                Text = "مجلد الحفظ (يجب أن يكون على قرص مختلف):",
+                Text = "مجلد الحفظ (يفضّل قرص مختلف):",
                 Location = new Point(20, 20), AutoSize = true,
                 ForeColor = TextMain, Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                 BackColor = Color.Transparent
@@ -275,7 +676,7 @@ namespace MemoryFixer
 
             btnStartRec = new RoundButton
             {
-                Text = "بدء الاستعادة", Location = new Point(20, 90),
+                Text = "بدء الاستعادة الخام", Location = new Point(20, 90),
                 Size = new Size(200, 42), Normal = Accent,
                 Hover = Color.FromArgb(139, 92, 246), Radius = 8,
                 Font = new Font("Segoe UI", 10.5F, FontStyle.Bold)
@@ -288,7 +689,7 @@ namespace MemoryFixer
                 Size = new Size(120, 42), Normal = Error,
                 Hover = Color.FromArgb(220, 38, 38), Radius = 8, Enabled = false
             };
-            btnStopRec.Click += (s, e) => { cts?.Cancel(); Log(logRecovery, "تم إرسال أمر الإيقاف", Warning); };
+            btnStopRec.Click += (s, e) => { cts?.Cancel(); Log(logRecovery, "تم الإيقاف", Warning); };
 
             lblRecPercent = new Label
             {
@@ -299,14 +700,14 @@ namespace MemoryFixer
 
             pbRecovery = new ProgressBar
             {
-                Location = new Point(20, 145), Width = 1040, Height = 24,
+                Location = new Point(20, 145), Width = 1080, Height = 24,
                 Style = ProgressBarStyle.Continuous,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
             logRecovery = new RichTextBox
             {
-                Location = new Point(20, 185), Size = new Size(1040, 290),
+                Location = new Point(20, 185), Size = new Size(1080, 315),
                 BackColor = Color.FromArgb(12, 12, 20), ForeColor = TextMain,
                 Font = new Font("Consolas", 9F), ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle, ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -324,7 +725,8 @@ namespace MemoryFixer
             tab.Controls.Add(logRecovery);
         }
 
-        void BuildTab2(TabPage tab)
+        // ============= Tab 3: Repair =============
+        void BuildTab3(TabPage tab)
         {
             var lbl = new Label
             {
@@ -346,8 +748,8 @@ namespace MemoryFixer
             btnFormatFull = MkBtn("فورمات كامل", Warning, 650, 55);
             btnFormatFull.Click += (s, e) => RunRepair("format_full");
 
-            btnFixMBR = MkBtn("إصلاح Boot Sector", Accent, 20, 120);
-            btnFixMBR.Click += (s, e) => RunRepair("fix_boot");
+            btnFixBoot = MkBtn("إصلاح Boot Sector", Accent, 20, 120);
+            btnFixBoot.Click += (s, e) => RunRepair("fix_boot");
 
             btnBackupBoot = MkBtn("نسخ Boot Sector", Teal, 230, 120);
             btnBackupBoot.Click += (s, e) => BackupBoot();
@@ -357,7 +759,7 @@ namespace MemoryFixer
 
             logRepair = new RichTextBox
             {
-                Location = new Point(20, 190), Size = new Size(1040, 285),
+                Location = new Point(20, 190), Size = new Size(1080, 310),
                 BackColor = Color.FromArgb(12, 12, 20), ForeColor = TextMain,
                 Font = new Font("Consolas", 9F), ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle, ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -370,13 +772,14 @@ namespace MemoryFixer
             tab.Controls.Add(btnChkFix);
             tab.Controls.Add(btnFormatQuick);
             tab.Controls.Add(btnFormatFull);
-            tab.Controls.Add(btnFixMBR);
+            tab.Controls.Add(btnFixBoot);
             tab.Controls.Add(btnBackupBoot);
             tab.Controls.Add(btnRestoreBoot);
             tab.Controls.Add(logRepair);
         }
 
-        void BuildTab3(TabPage tab)
+        // ============= Tab 4: Bad sectors =============
+        void BuildTab4(TabPage tab)
         {
             btnBadStart = MkBtn("بدء فحص القطاعات", Accent, 20, 20);
             btnBadStart.Size = new Size(220, 45);
@@ -390,13 +793,13 @@ namespace MemoryFixer
 
             pbBad = new ProgressBar
             {
-                Location = new Point(20, 80), Width = 1040, Height = 24,
+                Location = new Point(20, 80), Width = 1080, Height = 24,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
             logBad = new RichTextBox
             {
-                Location = new Point(20, 120), Size = new Size(1040, 355),
+                Location = new Point(20, 120), Size = new Size(1080, 380),
                 BackColor = Color.FromArgb(12, 12, 20), ForeColor = TextMain,
                 Font = new Font("Consolas", 9F), ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle, ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -410,7 +813,8 @@ namespace MemoryFixer
             tab.Controls.Add(logBad);
         }
 
-        void BuildTab4(TabPage tab)
+        // ============= Tab 5: Speed =============
+        void BuildTab5(TabPage tab)
         {
             var lbl = new Label
             {
@@ -427,13 +831,13 @@ namespace MemoryFixer
 
             pbSpeed = new ProgressBar
             {
-                Location = new Point(270, 65), Width = 790, Height = 24,
+                Location = new Point(270, 65), Width = 830, Height = 24,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
             logSpeed = new RichTextBox
             {
-                Location = new Point(20, 130), Size = new Size(1040, 345),
+                Location = new Point(20, 130), Size = new Size(1080, 370),
                 BackColor = Color.FromArgb(12, 12, 20), ForeColor = TextMain,
                 Font = new Font("Consolas", 10F), ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle, ScrollBars = RichTextBoxScrollBars.Vertical,
@@ -447,13 +851,77 @@ namespace MemoryFixer
             tab.Controls.Add(logSpeed);
         }
 
+        // ============= Tab 6: Hex Viewer =============
+        void BuildTab6(TabPage tab)
+        {
+            var lbl = new Label
+            {
+                Text = "عارض Hex - يعرض أول 512 بايت من أي ملف أو قطاع",
+                Location = new Point(20, 15), AutoSize = true,
+                ForeColor = TextMain, Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                BackColor = Color.Transparent
+            };
+
+            btnHexFromFile = MkBtn("فتح ملف", Info, 20, 45);
+            btnHexFromFile.Click += (s, e) =>
+            {
+                using (var ofd = new OpenFileDialog())
+                {
+                    if (ofd.ShowDialog() != DialogResult.OK) return;
+                    try
+                    {
+                        var data = File.ReadAllBytes(ofd.FileName);
+                        if (data.Length > 512) Array.Resize(ref data, 512);
+                        hexViewer.SetData(data, Path.GetFileName(ofd.FileName));
+                    }
+                    catch (Exception ex) { MessageBox.Show("خطأ: " + ex.Message); }
+                }
+            };
+
+            btnHexFromDrive = MkBtn("قطاع من الذاكرة", Pink, 230, 45);
+            btnHexFromDrive.Click += (s, e) =>
+            {
+                try
+                {
+                    if (cmbDrives.SelectedItem == null) { MessageBox.Show("اختر الذاكرة."); return; }
+                    char L = GetLetter();
+                    var input = Microsoft.VisualBasic.Interaction.InputBox(
+                        "أدخل رقم القطاع (Sector Number):", "قراءة قطاع", "0");
+                    if (!long.TryParse(input, out long sector)) return;
+
+                    using (var s = new FileStream($@"\\.\{L}:", FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        s.Seek(sector * 512, SeekOrigin.Begin);
+                        byte[] buf = new byte[512];
+                        s.Read(buf, 0, 512);
+                        hexViewer.SetData(buf, $"Sector #{sector} (Offset 0x{sector * 512:X})");
+                    }
+                }
+                catch (Exception ex) { MessageBox.Show("خطأ: " + ex.Message); }
+            };
+
+            hexViewer = new HexViewer
+            {
+                Location = new Point(20, 100),
+                Size = new Size(1080, 400),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            tab.Controls.Add(lbl);
+            tab.Controls.Add(btnHexFromFile);
+            tab.Controls.Add(btnHexFromDrive);
+            tab.Controls.Add(hexViewer);
+        }
+
+        // ============= Helpers =============
         RoundButton MkBtn(string text, Color color, int x, int y)
         {
             return new RoundButton
             {
                 Text = text, Location = new Point(x, y),
-                Size = new Size(200, 50), Normal = color,
-                Hover = Lighten(color, 25), Radius = 8
+                Size = new Size(200, 45), Normal = color,
+                Hover = Lighten(color, 25), Radius = 8,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
             };
         }
 
@@ -461,6 +929,21 @@ namespace MemoryFixer
         {
             return Color.FromArgb(Math.Min(255, c.R + amt),
                 Math.Min(255, c.G + amt), Math.Min(255, c.B + amt));
+        }
+
+        string FormatSize(long bytes)
+        {
+            if (bytes < 1024) return bytes + " B";
+            if (bytes < 1024 * 1024) return (bytes / 1024.0).ToString("F1") + " KB";
+            if (bytes < 1024L * 1024 * 1024) return (bytes / (1024.0 * 1024)).ToString("F1") + " MB";
+            return (bytes / (1024.0 * 1024 * 1024)).ToString("F2") + " GB";
+        }
+
+        string SanitizeFileName(string name)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            return name;
         }
 
         void LoadDrives()
@@ -511,12 +994,6 @@ namespace MemoryFixer
                 { MessageBox.Show("اختر مجلد حفظ صحيح."); return; }
 
                 char L = GetLetter();
-                if (txtOut.Text.StartsWith(L.ToString(), StringComparison.OrdinalIgnoreCase))
-                {
-                    if (MessageBox.Show("تحذير: مجلد الحفظ على نفس الذاكرة!\nسيؤدي هذا لإتلاف الملفات.\n\nمتابعة؟",
-                        "تحذير", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-                }
-
                 cts = new CancellationTokenSource();
                 btnStartRec.Enabled = false;
                 btnStopRec.Enabled = true;
@@ -536,8 +1013,9 @@ namespace MemoryFixer
         void RecoverFiles(string drivePath, string outDir, CancellationToken token)
         {
             Log(logRecovery, "===============================================", Info);
-            Log(logRecovery, "  Memory Fixer - استعادة الملفات", Info);
+            Log(logRecovery, "  Memory Fixer v2.0 - استعادة خام", Info);
             Log(logRecovery, "  " + Dev, Info);
+            Log(logRecovery, "  وضع: قراءة فقط (بدون كتابة على الكارت)", Success);
             Log(logRecovery, "===============================================", Info);
 
             try
@@ -588,7 +1066,6 @@ namespace MemoryFixer
 
                     Log(logRecovery, "-----------------------------------------------", CardBorder);
                     Log(logRecovery, $"انتهى. عدد الملفات: {found}", Success);
-                    Log(logRecovery, $"الحفظ في: {outDir}", Info);
                 }
             }
             catch (UnauthorizedAccessException) { Log(logRecovery, "خطأ: شغّل كمسؤول.", Error); }
@@ -812,7 +1289,7 @@ namespace MemoryFixer
         void BadScan(char L, CancellationToken token)
         {
             Log(logBad, "===============================================", Info);
-            Log(logBad, "  فحص القطاعات", Info);
+            Log(logBad, "  فحص القطاعات (وضع القراءة فقط)", Info);
             Log(logBad, "===============================================", Info);
 
             try
@@ -954,6 +1431,13 @@ namespace MemoryFixer
             if (pb.InvokeRequired) { pb.Invoke((Action)(() => UpdatePb(pb, lbl, pct))); return; }
             pb.Value = Math.Min(100, Math.Max(0, pct));
             if (lbl != null) lbl.Text = pct + "%";
+        }
+
+        void SetLabel(Label lbl, string text, Color color)
+        {
+            if (lbl.InvokeRequired) { lbl.Invoke((Action)(() => SetLabel(lbl, text, color))); return; }
+            lbl.Text = text;
+            lbl.ForeColor = color;
         }
     }
 }
